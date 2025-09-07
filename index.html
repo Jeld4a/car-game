@@ -4,32 +4,215 @@
   <meta charset="UTF-8">
   <title>Autíčko hra</title>
   <style>
-    /* ... (zachovat stávající styly) ... */
+    :root {
+      --road: #2c2c2c;
+      --lane: rgba(255,255,255,.9);
+      --sky: linear-gradient(180deg,#87ceeb 0%,#1e3c72 100%);
+      --grass: #3cb371;
+    }
+    html, body { height: 100%; margin: 0; }
+    body { overflow: hidden; background: var(--sky); font-family: system-ui, Arial, sans-serif; }
+    #gameCanvas { display: block; margin: 0 auto; background: var(--grass); }
+    #hud { position: fixed; left: 16px; top: 12px; color: white; font-weight: 700; text-shadow: 0 2px 6px rgba(0,0,0,.7); font-size: 22px; }
+    #hint { position: fixed; right: 16px; bottom: 12px; color: rgba(255,255,255,.9); font-size: 14px; text-shadow: 0 2px 4px rgba(0,0,0,.7); }
+    #carSelect { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(255,255,255,0.95); padding: 20px; border-radius: 16px; text-align: center; }
+    #carSelect img { width: 90px; margin: 8px; cursor: pointer; border: 3px solid transparent; border-radius: 10px; }
+    #carSelect img:hover { border-color: #007bff; transform: scale(1.1); }
   </style>
 </head>
 <body>
-  <div id="loading">Načítání…</div>
   <div id="carSelect">
     <h2>Vyber si autíčko 🚗</h2>
     <div>
-      <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/3/3d/Red_Car_Closed_Window_Cartoon_Vector.svg/512px-Red_Car_Closed_Window_Cartoon_Vector.svg.png" data-car="car1">
-      <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/0/0f/Circle-icons-car.svg/512px-Circle-icons-car.svg.png" data-car="car2">
-      <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/3/3e/Red_Lamborghini.svg/512px-Red_Lamborghini.svg.png" data-car="car3">
-      <!-- Přidej další podle potřeby -->
+      <img src="car-svgrepo-com.svg" data-car="car1">
+      <!-- you can add more cars if you have more files -->
     </div>
   </div>
+
   <canvas id="gameCanvas"></canvas>
   <div id="hud">Skóre: <span id="scoreEl">0</span></div>
   <div id="hint">Ovládání: ← → nebo dotyk vlevo/vpravo</div>
   <audio id="collectSound" src="https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg"></audio>
 
   <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    function resize() {
+      canvas.width = Math.min(window.innerWidth, 500);
+      canvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // === ASSETS ===
     const assets = {
-      car: { img: new Image(), ready: false, src: "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3d/Red_Car_Closed_Window_Cartoon_Vector.svg/512px-Red_Car_Closed_Window_Cartoon_Vector.svg.png" },
-      star: { img: new Image(), ready: false, src: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e5/Full_Star_Yellow.svg/240px-Full_Star_Yellow.svg.png" },
-      // ... ostatní jako strom ...
+      car: { img: new Image(), ready: false, src: "car-svgrepo-com.svg" },
+      star: { img: new Image(), ready: false, src: "star.png" },
+      tree: { img: new Image(), ready: false, src: "tree.png" }
     };
-    // rest of code...
+    Object.values(assets).forEach(a => {
+      a.img.onload = () => { a.ready = true; };
+      a.img.src = a.src;
+    });
+
+    // === GAME STATE ===
+    const scoreEl = document.getElementById('scoreEl');
+    const collectSound = document.getElementById('collectSound');
+    const car = { x: canvas.width/2 - 30, y: canvas.height - 140, w: 60, h: 100, baseSpeed: 20, speed: 20 };
+    let items = [];
+    let gameSpeed = 2;
+    let laneOffset = 0;
+    let score = 0;
+
+    // === CLOUDS ===
+    const clouds = Array.from({length:5}, ()=>({
+      x: Math.random()*canvas.width,
+      y: Math.random()*200,
+      w: 80+Math.random()*60,
+      h: 40+Math.random()*20,
+      speed: 0.2+Math.random()*0.3
+    }));
+
+    function drawClouds(){
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      clouds.forEach(cloud => {
+        ctx.beginPath();
+        ctx.ellipse(cloud.x, cloud.y, cloud.w/2, cloud.h/2, 0, 0, Math.PI*2);
+        ctx.fill();
+      });
+    }
+    function updateClouds(){
+      clouds.forEach(cloud => {
+        cloud.x += cloud.speed;
+        if(cloud.x - cloud.w/2 > canvas.width){
+          cloud.x = -cloud.w;
+          cloud.y = Math.random()*200;
+        }
+      });
+    }
+
+    function clampCar(){ car.x = Math.max(0, Math.min(canvas.width - car.w, car.x)); }
+
+    function drawBackground(){
+      const sunX = canvas.width - 80;
+      ctx.beginPath();
+      ctx.arc(sunX, 80, 40, 0, Math.PI*2);
+      ctx.fillStyle = 'yellow';
+      ctx.fill();
+      drawClouds();
+    }
+
+    function drawRoad(){
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--grass');
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // trees
+      for(let y = 0; y < canvas.height; y += 200){
+        if(assets.tree.ready){
+          ctx.drawImage(assets.tree.img, 20, (y + laneOffset*0.5) % canvas.height, 40, 60);
+          ctx.drawImage(assets.tree.img, canvas.width-60, (y + laneOffset*0.5 + 100) % canvas.height, 40, 60);
+        }
+      }
+
+      const roadW = canvas.width * 0.7;
+      const roadX = (canvas.width - roadW) / 2;
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--road');
+      ctx.fillRect(roadX, 0, roadW, canvas.height);
+
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--lane');
+      const stripeGap = 50;
+      const stripeLen = 35;
+      for (let y = -stripeLen; y < canvas.height + stripeLen; y += stripeGap) {
+        const yy = y + (laneOffset % stripeGap);
+        ctx.beginPath();
+        ctx.moveTo(canvas.width/2, yy);
+        ctx.lineTo(canvas.width/2, yy + stripeLen);
+        ctx.stroke();
+      }
+    }
+
+    function drawCar(){
+      if (assets.car.ready) {
+        ctx.drawImage(assets.car.img, car.x, car.y, car.w, car.h);
+      } else {
+        ctx.fillStyle = '#e63946';
+        ctx.fillRect(car.x, car.y, car.w, car.h);
+      }
+    }
+
+    function drawItems(){
+      items.forEach(item => {
+        if (assets.star.ready) ctx.drawImage(assets.star.img, item.x - 15, item.y - 15, 30, 30);
+        else {
+          ctx.fillStyle = 'gold';
+          ctx.beginPath();
+          ctx.arc(item.x, item.y, 10, 0, Math.PI*2);
+          ctx.fill();
+        }
+      });
+    }
+
+    function updateItems(){
+      for (let i = 0; i < items.length; i++) {
+        items[i].y += gameSpeed;
+        if (items[i].y > canvas.height + 20) { items.splice(i, 1); i--; continue; }
+        if (items[i].x > car.x && items[i].x < car.x + car.w && items[i].y > car.y && items[i].y < car.y + car.h) {
+          score++;
+          scoreEl.textContent = score;
+          try { collectSound.play(); } catch(_){ }
+          items.splice(i, 1); i--;
+        }
+      }
+    }
+
+    function spawnItem(){
+      const roadW = canvas.width * 0.7;
+      const roadX = (canvas.width - roadW) / 2;
+      const x = roadX + Math.random() * (roadW - 40) + 20;
+      items.push({ x, y: -20 });
+    }
+
+    function gameLoop(){
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawBackground();
+      drawRoad();
+      drawCar();
+      drawItems();
+      updateItems();
+      updateClouds();
+      laneOffset += gameSpeed * 0.9;
+      gameSpeed += 0.0015;
+      car.speed = car.baseSpeed + gameSpeed * 3;
+      requestAnimationFrame(gameLoop);
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft') car.x -= car.speed;
+      if (e.key === 'ArrowRight') car.x += car.speed;
+      clampCar();
+    });
+    document.addEventListener('touchstart', (e) => {
+      if (!e.touches || !e.touches[0]) return;
+      const touchX = e.touches[0].clientX;
+      if (touchX < canvas.width/2) car.x -= car.speed*1.5; else car.x += car.speed*1.5;
+      clampCar();
+    }, { passive: true });
+
+    // car selection
+    const carSelect = document.getElementById('carSelect');
+    document.querySelectorAll('#carSelect img').forEach(img => {
+      img.addEventListener('click', () => {
+        const selected = img.getAttribute('src');
+        assets.car.img.src = selected;
+        assets.car.ready = false;
+        assets.car.img.onload = () => { assets.car.ready = true; };
+        carSelect.style.display = 'none';
+      });
+    });
+
+    setInterval(spawnItem, 1000);
+    gameLoop();
   </script>
 </body>
 </html>
