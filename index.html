@@ -1,37 +1,44 @@
 <!DOCTYPE html>
-<html lang="cs">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Autíčko hra</title>
+  <title>Car Game</title>
   <style>
     :root {
       --road: #2c2c2c;
       --lane: rgba(255,255,255,.9);
       --sky: linear-gradient(180deg,#87ceeb 0%,#1e3c72 100%);
       --grass: #3cb371;
+      --sand: #f4d03f;
     }
     html, body { height: 100%; margin: 0; }
     body { overflow: hidden; background: var(--sky); font-family: system-ui, Arial, sans-serif; }
     #gameCanvas { display: block; margin: 0 auto; background: var(--grass); }
     #hud { position: fixed; left: 16px; top: 12px; color: white; font-weight: 700; text-shadow: 0 2px 6px rgba(0,0,0,.7); font-size: 22px; }
     #hint { position: fixed; right: 16px; bottom: 12px; color: rgba(255,255,255,.9); font-size: 14px; text-shadow: 0 2px 4px rgba(0,0,0,.7); }
-    #carSelect { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(255,255,255,0.95); padding: 20px; border-radius: 16px; text-align: center; }
-    #carSelect img { width: 90px; margin: 8px; cursor: pointer; border: 3px solid transparent; border-radius: 10px; }
-    #carSelect img:hover { border-color: #007bff; transform: scale(1.1); }
+    #gameOver {
+      display:none;
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%);
+      background: rgba(0,0,0,0.85); color: white; padding: 20px 40px; border-radius: 12px;
+      font-size: 24px; text-align: center;
+    }
+    #restartBtn {
+      margin-top: 15px; padding: 10px 20px; font-size: 18px;
+      border: none; border-radius: 8px; cursor: pointer;
+      background: #ff4757; color: white; font-weight: bold;
+    }
+    #restartBtn:hover { background: #e84118; }
   </style>
 </head>
 <body>
-  <div id="carSelect">
-    <h2>Vyber si autíčko 🚗</h2>
-    <div>
-      <img src="car-svgrepo-com.svg" data-car="car1">
-      <!-- you can add more cars if you have more files -->
-    </div>
+  <canvas id="gameCanvas"></canvas>
+  <div id="hud">Score: <span id="scoreEl">0</span></div>
+  <div id="hint">Controls: � � or touch left/right</div>
+  <div id="gameOver">
+    ?? Game Over<br>
+    <button id="restartBtn">Play Again</button>
   </div>
 
-  <canvas id="gameCanvas"></canvas>
-  <div id="hud">Skóre: <span id="scoreEl">0</span></div>
-  <div id="hint">Ovládání: ← → nebo dotyk vlevo/vpravo</div>
   <audio id="collectSound" src="https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg"></audio>
 
   <script>
@@ -46,9 +53,13 @@
 
     // === ASSETS ===
     const assets = {
-      car: { img: new Image(), ready: false, src: "car-svgrepo-com.svg" },
-      star: { img: new Image(), ready: false, src: "star.png" },
-      tree: { img: new Image(), ready: false, src: "tree.png" }
+      car:    { img: new Image(), ready: false, src: "car-svgrepo-com.svg" },
+      star:   { img: new Image(), ready: false, src: "star-svgrepo-com.svg" },
+      tree:   { img: new Image(), ready: false, src: "tree-svgrepo-com.svg" },
+      brick:  { img: new Image(), ready: false, src: "brick-svgrepo-com.svg" },
+      camel:  { img: new Image(), ready: false, src: "camel-svgrepo-com.svg" },
+      cactus: { img: new Image(), ready: false, src: "cactus-svgrepo-com.svg" },
+      duck: { img: new Image(), ready: false, src: "duck-svgrepo-com.svg" }
     };
     Object.values(assets).forEach(a => {
       a.img.onload = () => { a.ready = true; };
@@ -57,12 +68,30 @@
 
     // === GAME STATE ===
     const scoreEl = document.getElementById('scoreEl');
+    const gameOverEl = document.getElementById('gameOver');
+    const restartBtn = document.getElementById('restartBtn');
     const collectSound = document.getElementById('collectSound');
     const car = { x: canvas.width/2 - 30, y: canvas.height - 140, w: 60, h: 100, baseSpeed: 20, speed: 20 };
-    let items = [];
-    let gameSpeed = 2;
-    let laneOffset = 0;
-    let score = 0;
+    let stars, obstacles, gameSpeed, laneOffset, score, running, desert;
+    let starInterval, obstacleInterval;
+
+    function resetGame(){
+      stars = [];
+      obstacles = [];
+      gameSpeed = 2;
+      laneOffset = 0;
+      score = 0;
+      desert = false;
+      running = true;
+      car.x = canvas.width/2 - car.w/2;
+      scoreEl.textContent = score;
+      gameOverEl.style.display = 'none';
+      clearInterval(starInterval);
+      clearInterval(obstacleInterval);
+      starInterval = setInterval(spawnStar, 1200);
+      obstacleInterval = setInterval(spawnObstacle, 4000);
+      gameLoop();
+    }
 
     // === CLOUDS ===
     const clouds = Array.from({length:5}, ()=>({
@@ -72,7 +101,6 @@
       h: 40+Math.random()*20,
       speed: 0.2+Math.random()*0.3
     }));
-
     function drawClouds(){
       ctx.fillStyle = 'rgba(255,255,255,0.9)';
       clouds.forEach(cloud => {
@@ -91,8 +119,12 @@
       });
     }
 
-    function clampCar(){ car.x = Math.max(0, Math.min(canvas.width - car.w, car.x)); }
-
+    // === DRAW ===
+    function clampCar(){
+  const roadW = canvas.width * 0.7;
+  const roadX = (canvas.width - roadW) / 2;
+  car.x = Math.max(roadX, Math.min(roadX + roadW - car.w, car.x));
+}
     function drawBackground(){
       const sunX = canvas.width - 80;
       ctx.beginPath();
@@ -101,16 +133,27 @@
       ctx.fill();
       drawClouds();
     }
-
     function drawRoad(){
-      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--grass');
+      ctx.fillStyle = desert ? getComputedStyle(document.documentElement).getPropertyValue('--sand')
+                             : getComputedStyle(document.documentElement).getPropertyValue('--grass');
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // trees
-      for(let y = 0; y < canvas.height; y += 200){
-        if(assets.tree.ready){
-          ctx.drawImage(assets.tree.img, 20, (y + laneOffset*0.5) % canvas.height, 40, 60);
-          ctx.drawImage(assets.tree.img, canvas.width-60, (y + laneOffset*0.5 + 100) % canvas.height, 40, 60);
+      // side objects (trees or desert objects)
+      for (let y = 0; y < canvas.height; y += 200) {
+        if (!desert) {
+          // --- GRASS MODE (tree + duck) ---
+          const leftImg  = (Math.floor(y/200) % 2 === 0) ? assets.tree.img : assets.duck.img;
+          const rightImg = (Math.floor(y/200) % 2 === 0) ? assets.duck.img : assets.tree.img;
+          if (assets.tree.ready && assets.duck.ready) {
+            ctx.drawImage(leftImg, 20, (y + laneOffset*0.5) % canvas.height, 40, 60);
+            ctx.drawImage(rightImg, canvas.width-60, (y + laneOffset*0.5 + 100) % canvas.height, 40, 60);
+          }
+        } else {
+          // --- DESERT MODE (camel + cactus) ---
+          const imgLeft  = (Math.floor(y/200) % 2 === 0) ? assets.camel.img : assets.cactus.img;
+          const imgRight = (Math.floor(y/200) % 2 === 0) ? assets.cactus.img : assets.camel.img;
+          ctx.drawImage(imgLeft, 20, (y + laneOffset*0.5) % canvas.height, 50, 50);
+          ctx.drawImage(imgRight, canvas.width-70, (y + laneOffset*0.5 + 100) % canvas.height, 50, 50);
         }
       }
 
@@ -118,11 +161,9 @@
       const roadX = (canvas.width - roadW) / 2;
       ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--road');
       ctx.fillRect(roadX, 0, roadW, canvas.height);
-
       ctx.lineWidth = 5;
       ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--lane');
-      const stripeGap = 50;
-      const stripeLen = 35;
+      const stripeGap = 50, stripeLen = 35;
       for (let y = -stripeLen; y < canvas.height + stripeLen; y += stripeGap) {
         const yy = y + (laneOffset % stripeGap);
         ctx.beginPath();
@@ -131,62 +172,73 @@
         ctx.stroke();
       }
     }
+    function drawCar(){ if (assets.car.ready) ctx.drawImage(assets.car.img, car.x, car.y, car.w, car.h); }
+    function drawStars(){ stars.forEach(item => { if (assets.star.ready) ctx.drawImage(assets.star.img, item.x - 15, item.y - 15, 30, 30); }); }
+    function drawObstacles(){ obstacles.forEach(o => { if (assets.brick.ready) ctx.drawImage(assets.brick.img, o.x - 20, o.y - 20, 40, 40); }); }
 
-    function drawCar(){
-      if (assets.car.ready) {
-        ctx.drawImage(assets.car.img, car.x, car.y, car.w, car.h);
-      } else {
-        ctx.fillStyle = '#e63946';
-        ctx.fillRect(car.x, car.y, car.w, car.h);
-      }
-    }
-
-    function drawItems(){
-      items.forEach(item => {
-        if (assets.star.ready) ctx.drawImage(assets.star.img, item.x - 15, item.y - 15, 30, 30);
-        else {
-          ctx.fillStyle = 'gold';
-          ctx.beginPath();
-          ctx.arc(item.x, item.y, 10, 0, Math.PI*2);
-          ctx.fill();
-        }
-      });
-    }
-
-    function updateItems(){
-      for (let i = 0; i < items.length; i++) {
-        items[i].y += gameSpeed;
-        if (items[i].y > canvas.height + 20) { items.splice(i, 1); i--; continue; }
-        if (items[i].x > car.x && items[i].x < car.x + car.w && items[i].y > car.y && items[i].y < car.y + car.h) {
+    // === UPDATE ===
+    function updateStars(){
+      for (let i = 0; i < stars.length; i++) {
+        stars[i].y += gameSpeed;
+        if (stars[i].y > canvas.height + 20) { stars.splice(i, 1); i--; continue; }
+        if (stars[i].x > car.x && stars[i].x < car.x + car.w && stars[i].y > car.y && stars[i].y < car.y + car.h) {
           score++;
           scoreEl.textContent = score;
+          if(score >= 10) desert = true; // switch to desert
           try { collectSound.play(); } catch(_){ }
-          items.splice(i, 1); i--;
+          stars.splice(i, 1); i--;
+        }
+      }
+    }
+    function updateObstacles(){
+      for (let i = 0; i < obstacles.length; i++) {
+        obstacles[i].y += gameSpeed;
+        if (obstacles[i].y > canvas.height + 20) { obstacles.splice(i, 1); i--; continue; }
+        if (obstacles[i].x > car.x && obstacles[i].x < car.x + car.w && obstacles[i].y > car.y && obstacles[i].y < car.y + car.h) {
+          running = false;
+          gameOverEl.style.display = 'block';
+          clearInterval(starInterval);
+          clearInterval(obstacleInterval);
         }
       }
     }
 
-    function spawnItem(){
+    // === SPAWN ===
+    function spawnStar(){
       const roadW = canvas.width * 0.7;
       const roadX = (canvas.width - roadW) / 2;
       const x = roadX + Math.random() * (roadW - 40) + 20;
-      items.push({ x, y: -20 });
+      stars.push({ x, y: -20 });
+    }
+    function spawnObstacle(){
+      const roadW = canvas.width * 0.7;
+      const roadX = (canvas.width - roadW) / 2;
+      const blockCount = Math.floor(Math.random()*3)+3; // 3�5 bricks
+      const blockWidth = 40;
+      const startX = roadX + Math.random() * (roadW - blockCount*blockWidth - 20) + 10;
+      for(let i=0; i<blockCount; i++){
+        obstacles.push({ x: startX + i*blockWidth, y: -40 });
+      }
     }
 
+    // === LOOP ===
     function gameLoop(){
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       drawBackground();
       drawRoad();
       drawCar();
-      drawItems();
-      updateItems();
+      drawStars();
+      drawObstacles();
+      updateStars();
+      updateObstacles();
       updateClouds();
       laneOffset += gameSpeed * 0.9;
       gameSpeed += 0.0015;
       car.speed = car.baseSpeed + gameSpeed * 3;
-      requestAnimationFrame(gameLoop);
+      if (running) requestAnimationFrame(gameLoop);
     }
 
+    // === CONTROLS ===
     document.addEventListener('keydown', (e) => {
       if (e.key === 'ArrowLeft') car.x -= car.speed;
       if (e.key === 'ArrowRight') car.x += car.speed;
@@ -199,20 +251,11 @@
       clampCar();
     }, { passive: true });
 
-    // car selection
-    const carSelect = document.getElementById('carSelect');
-    document.querySelectorAll('#carSelect img').forEach(img => {
-      img.addEventListener('click', () => {
-        const selected = img.getAttribute('src');
-        assets.car.img.src = selected;
-        assets.car.ready = false;
-        assets.car.img.onload = () => { assets.car.ready = true; };
-        carSelect.style.display = 'none';
-      });
-    });
+    // === RESTART ===
+    restartBtn.addEventListener('click', resetGame);
 
-    setInterval(spawnItem, 1000);
-    gameLoop();
+    // === START ===
+    resetGame();
   </script>
 </body>
 </html>
