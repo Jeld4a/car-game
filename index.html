@@ -33,13 +33,15 @@
 <body>
   <canvas id="gameCanvas"></canvas>
   <div id="hud">Score: <span id="scoreEl">0</span></div>
-  <div id="hint">Controls: ã õ or touch left/right</div>
+  <div id="hint">Controls: ‚Üê ‚Üí or touch left/right</div>
   <div id="gameOver">
-    ?? Game Over<br>
+    üí• Game Over<br>
     <button id="restartBtn">Play Again</button>
   </div>
 
   <audio id="collectSound" src="https://actions.google.com/sounds/v1/cartoon/wood_plank_flicks.ogg"></audio>
+  <audio id="startSound" src="start-sound.ogg"></audio>
+<audio id="gameOverSound" src="gameover-sound.ogg"></audio>
 
   <script>
     const canvas = document.getElementById('gameCanvas');
@@ -213,7 +215,7 @@
     function spawnObstacle(){
       const roadW = canvas.width * 0.7;
       const roadX = (canvas.width - roadW) / 2;
-      const blockCount = Math.floor(Math.random()*3)+3; // 3ñ5 bricks
+      const blockCount = Math.floor(Math.random()*3)+3; // 3‚Äì5 bricks
       const blockWidth = 40;
       const startX = roadX + Math.random() * (roadW - blockCount*blockWidth - 20) + 10;
       for(let i=0; i<blockCount; i++){
